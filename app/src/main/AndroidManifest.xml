@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="One UI Lyrics Probe" android:allowBackup="false">
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposeddescription" android:value="Read-only Samsung SystemUI clock discovery for Vector" />
+        <meta-data android:name="xposedminversion" android:value="82" />
+    </application>
+</manifest>
