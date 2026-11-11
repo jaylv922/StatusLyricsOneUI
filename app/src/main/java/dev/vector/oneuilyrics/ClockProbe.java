@@ -20,7 +20,8 @@ public final class ClockProbe implements IXposedHookLoadPackage {
     private static final Set<View> SEEN = Collections.newSetFromMap(new WeakHashMap<View, Boolean>());
     private static int constructed = 0;
     private static int attached = 0;
-    private static int inflated = 0;
+    private static int clockUpdates = 0;
+    private static int smallTimeCalls = 0;
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam p) {
         if (!"com.android.systemui".equals(p.packageName)) return;
@@ -55,7 +56,9 @@ public final class ClockProbe implements IXposedHookLoadPackage {
             });
             log("constructor hooks=" + hooks.size());
             hookLifecycle(type, "onAttachedToWindow", 0);
-            hookLifecycle(type, "onFinishInflate", 1);
+            hookClockMethod(type, "updateClock", false);
+            hookClockMethod(type, "getSmallTime", true);
+            hookClockMethod(type, "updateClockVisibility", false);
         } catch (Throwable t) { log("discovery error=" + t); }
     }
 
@@ -69,6 +72,24 @@ public final class ClockProbe implements IXposedHookLoadPackage {
                     } else {
                         if (inflated++ < 15) inspect((View)param.thisObject, "inflated");
                     }
+                }
+            });
+            log("hook installed=" + method);
+        } catch (Throwable t) { log("hook unavailable=" + method + " reason=" + t); }
+    }
+
+    private static void hookClockMethod(Class<?> type, String method, boolean smallTime) {
+        try {
+            XposedHelpers.findAndHookMethod(type, method, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        int count = smallTime ? ++smallTimeCalls : ++clockUpdates;
+                        if (count > 20) return;
+                        log("method called=" + method + " count=" + count +
+                            " receiver=" + param.thisObject.getClass().getName());
+                        if (param.thisObject instanceof View)
+                            inspect((View) param.thisObject, method);
+                    } catch (Throwable t) { log("method callback error=" + method + " " + t); }
                 }
             });
             log("hook installed=" + method);
