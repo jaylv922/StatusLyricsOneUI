@@ -66,12 +66,8 @@ public final class ClockProbe implements IXposedHookLoadPackage {
         try {
             XposedHelpers.findAndHookMethod(type, method, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (!(param.thisObject instanceof View)) return;
-                    if (mode == 0) {
-                        if (attached++ < 15) inspect((View)param.thisObject, "attached");
-                    } else {
-                        if (inflated++ < 15) inspect((View)param.thisObject, "inflated");
-                    }
+                    if (param.thisObject instanceof View && attached++ < 15)
+                        inspect((View)param.thisObject, "attached");
                 }
             });
             log("hook installed=" + method);
