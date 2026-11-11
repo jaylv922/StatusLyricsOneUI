@@ -185,31 +185,42 @@ public final class ClockProbe implements IXposedHookLoadPackage {
         } catch (Throwable ignored) { return false; }
     }
 
+    /** Short, bounded UI-thread test: keep the label visible for ~6 seconds, then restore. */
     private static void scheduleTest(View view, String source) {
         if (!(view instanceof TextView) || testApplied) return;
         view.postDelayed(() -> {
             if (testApplied || !view.isAttachedToWindow() || !isClockCandidate(view)) return;
-            final TextView text = (TextView)view;
-            final CharSequence original = text.getText();
+            final TextView clock = (TextView) view;
+            final CharSequence original = clock.getText();
             testApplied = true;
-            try {
-                text.setText(TEST_LABEL);
-                log("TEST APPLIED source=" + source + " id=" + safeId(view) +
-                    " type=" + view.getClass().getName());
-                text.postDelayed(() -> {
+            log("TEST BEGIN source=" + source + " id=" + safeId(view) +
+                " type=" + view.getClass().getName());
+            final Runnable[] task = new Runnable[1];
+            task[0] = new Runnable() {
+                int ticks = 0;
+                int overwrites = 0;
+                @Override public void run() {
                     try {
-                        if (TEST_LABEL.contentEquals(text.getText())) {
-                            text.setText(original);
-                            log("TEST RESTORED id=" + safeId(view));
-                        } else {
-                            log("TEST already overwritten by SystemUI; no restoration needed");
+                        if (!clock.isAttachedToWindow()) {
+                            log("TEST STOP: clock detached");
+                            return;
                         }
-                    } catch (Throwable t) { log("TEST restoration error=" + t); }
-                }, 8000L);
-            } catch (Throwable t) {
-                log("TEST apply error=" + t);
-                testApplied = false;
-            }
+                        if (ticks >= 24) {
+                            // Never leave test text behind. Real clock refresh may also restore it.
+                            if (TEST_LABEL.contentEquals(clock.getText())) clock.setText(original);
+                            log("TEST END restored=" + !TEST_LABEL.contentEquals(clock.getText()) +
+                                " SamsungOverwrites=" + overwrites);
+                            return;
+                        }
+                        if (!TEST_LABEL.contentEquals(clock.getText())) overwrites++;
+                        clock.setText(TEST_LABEL);
+                        if (ticks == 0) log("TEST APPLIED id=" + safeId(view));
+                        ticks++;
+                        clock.postDelayed(this, 250L);
+                    } catch (Throwable t) { log("TEST error=" + t); }
+                }
+            };
+            clock.post(task[0]);
         }, 350L);
     }
 
