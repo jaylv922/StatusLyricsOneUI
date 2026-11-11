@@ -2,6 +2,7 @@ package dev.vector.oneuilyrics;
 
 import android.content.res.Resources;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -22,6 +23,14 @@ public final class ClockProbe implements IXposedHookLoadPackage {
     private static int attached = 0;
     private static int clockUpdates = 0;
     private static int smallTimeCalls = 0;
+    private static int hierarchyDumps = 0;
+    private static final String[] ROOTS = {
+        "com.android.systemui.statusbar.phone.PhoneStatusBarView",
+        "com.android.systemui.statusbar.phone.KeyguardStatusBarView",
+        "com.android.systemui.statusbar.phone.StatusBarWindowView",
+        "com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment",
+        "com.android.systemui.statusbar.phone.StatusBarIconControllerImpl"
+    };
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam p) {
         if (!"com.android.systemui".equals(p.packageName)) return;
@@ -59,6 +68,7 @@ public final class ClockProbe implements IXposedHookLoadPackage {
             hookClockMethod(type, "updateClock", false);
             hookClockMethod(type, "getSmallTime", true);
             hookClockMethod(type, "updateClockVisibility", false);
+            probeStatusBarRoots(p.classLoader);
         } catch (Throwable t) { log("discovery error=" + t); }
     }
 
@@ -90,6 +100,50 @@ public final class ClockProbe implements IXposedHookLoadPackage {
             });
             log("hook installed=" + method);
         } catch (Throwable t) { log("hook unavailable=" + method + " reason=" + t); }
+    }
+
+    private static void probeStatusBarRoots(ClassLoader loader) {
+        for (String candidate : ROOTS) {
+            try {
+                Class<?> cls = XposedHelpers.findClassIfExists(candidate, loader);
+                if (cls == null) { log("statusbar candidate absent=" + candidate); continue; }
+                log("statusbar candidate FOUND=" + candidate);
+                if (!ViewGroup.class.isAssignableFrom(cls)) continue;
+                try {
+                    XposedHelpers.findAndHookMethod(cls, "onAttachedToWindow", new XC_MethodHook() {
+                        @Override protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (!(param.thisObject instanceof ViewGroup) || hierarchyDumps++ >= 3) return;
+                                ViewGroup root = (ViewGroup) param.thisObject;
+                                log("statusbar tree ROOT=" + root.getClass().getName());
+                                int[] remaining = {100};
+                                dumpTree(root, 0, remaining);
+                            } catch (Throwable t) { log("statusbar tree error=" + t); }
+                        }
+                    });
+                    log("statusbar attached hook installed=" + candidate);
+                } catch (Throwable t) { log("statusbar hook unavailable=" + candidate + " " + t); }
+            } catch (Throwable t) { log("statusbar lookup failed=" + candidate + " " + t); }
+        }
+    }
+
+    private static void dumpTree(View view, int depth, int[] remaining) {
+        if (depth > 6 || remaining[0]-- <= 0) return;
+        try {
+            String id = "none";
+            if (view.getId() != View.NO_ID) {
+                try { id = view.getResources().getResourceName(view.getId()); }
+                catch (Throwable ignored) { id = Integer.toHexString(view.getId()); }
+            }
+            log("tree depth=" + depth + " type=" + view.getClass().getName() +
+                " id=" + id + " visibility=" + view.getVisibility());
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                int children = Math.min(group.getChildCount(), 60);
+                for (int i = 0; i < children && remaining[0] > 0; i++)
+                    dumpTree(group.getChildAt(i), depth + 1, remaining);
+            }
+        } catch (Throwable t) { log("tree node error=" + t); }
     }
 
     private static void inspect(View view, String event) {
